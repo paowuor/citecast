@@ -1,0 +1,21 @@
+# Core
+genblaze-core
+genblaze-gmicloud
+genblaze-google
+genblaze-openai
+genblaze-s3
+langchain
+langchain-community
+pypdf
+pdfplumber
+python-dotenv
+
+# Web
+fastapi
+uvicorn
+jinja2
+python-multipart
+
+# Optional (for development)
+pytest
+black
