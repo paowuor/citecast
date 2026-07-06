@@ -362,7 +362,140 @@ class CitationManager:
             data = json.load(f)
         logger.info(f"Loaded citation manifest from: {file_path}")
         return data
+    
+    # Add these methods to the CitationManager class
 
+def find_relevant_chunks_with_context(
+    self, 
+    claim: str, 
+    chunks: List[TextChunk], 
+    top_k: int = 3,
+    context_window: int = 1
+) -> List[Tuple[TextChunk, float, List[TextChunk]]]:
+    """
+    Find relevant chunks and include surrounding context chunks.
+    
+    Args:
+        claim: The claim text
+        chunks: List of document chunks
+        top_k: Number of top chunks to return
+        context_window: Number of chunks before/after to include as context
+        
+    Returns:
+        List of (chunk, score, [context_chunks]) tuples
+    """
+    relevant = self.find_relevant_chunks(claim, chunks, top_k=top_k)
+    
+    results = []
+    for chunk, score in relevant:
+        # Get the index of this chunk
+        try:
+            idx = chunks.index(chunk)
+        except ValueError:
+            results.append((chunk, score, []))
+            continue
+        
+        # Get surrounding chunks
+        start_idx = max(0, idx - context_window)
+        end_idx = min(len(chunks), idx + context_window + 1)
+        context_chunks = chunks[start_idx:end_idx]
+        
+        results.append((chunk, score, context_chunks))
+    
+    return results
+
+def generate_citations_with_context(
+    self, 
+    claim: str, 
+    chunks: List[TextChunk],
+    top_k: int = 3,
+    context_window: int = 1
+) -> Tuple[List[Citation], Dict[str, Any]]:
+    """
+    Generate citations with contextual information.
+    
+    Returns:
+        Tuple of (citations, context_data)
+    """
+    relevant_with_context = self.find_relevant_chunks_with_context(
+        claim, chunks, top_k=top_k, context_window=context_window
+    )
+    
+    citations = []
+    context_data = {}
+    
+    for chunk, score, context_chunks in relevant_with_context[:top_k]:
+        citation = Citation(
+            chunk_id=chunk.chunk_id,
+            text=chunk.text,
+            page=chunk.page,
+            char_start=chunk.char_start,
+            char_end=chunk.char_end,
+            similarity_score=score,
+            confidence_level="high" if score >= 0.7 else "medium" if score >= 0.5 else "low",
+            section_title=chunk.section_title,
+            text_preview=chunk.text[:200] + ("..." if len(chunk.text) > 200 else "")
+        )
+        citations.append(citation)
+        
+        # Store context for this chunk
+        context_data[chunk.chunk_id] = {
+            "context_chunks": [
+                {
+                    "chunk_id": c.chunk_id,
+                    "text_preview": c.text[:100] + ("..." if len(c.text) > 100 else ""),
+                    "page": c.page
+                }
+                for c in context_chunks
+            ]
+        }
+    
+    return citations, context_data
+
+def merge_citations_from_multiple_claims(
+    self,
+    claims: List[ClaimWithCitations],
+    deduplicate: bool = True
+) -> Dict[str, Any]:
+    """
+    Merge citations from multiple claims, with optional deduplication.
+    
+    Args:
+        claims: List of ClaimWithCitations objects
+        deduplicate: Whether to remove duplicate chunk references
+        
+    Returns:
+        Dictionary with merged citation data
+    """
+    merged = {
+        "unique_chunks": set(),
+        "chunk_frequency": defaultdict(int),
+        "page_distribution": defaultdict(int),
+        "confidence_distribution": defaultdict(int)
+    }
+    
+    for claim in claims:
+        for citation in claim.citations:
+            chunk_id = citation.chunk_id
+            
+            if deduplicate:
+                merged["unique_chunks"].add(chunk_id)
+            
+            merged["chunk_frequency"][chunk_id] += 1
+            merged["page_distribution"][citation.page] += 1
+            merged["confidence_distribution"][citation.confidence_level] += 1
+    
+    return {
+        "total_unique_chunks": len(merged["unique_chunks"]),
+        "most_cited_chunks": sorted(
+            merged["chunk_frequency"].items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:10],
+        "page_distribution": dict(merged["page_distribution"]),
+        "confidence_distribution": dict(merged["confidence_distribution"]),
+        "total_citations": sum(merged["chunk_frequency"].values())
+    }
 
 # Utility function for quick testing
 def create_citations_for_document(
