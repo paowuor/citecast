@@ -97,7 +97,7 @@ class SceneResponse(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Serve the main page."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="index.html", context={"request": request})
 
 
 @app.get("/viewer/{job_id}", response_class=HTMLResponse)
@@ -116,8 +116,9 @@ async def viewer(request: Request, job_id: str):
         manifest = None
     
     return templates.TemplateResponse(
-        "viewer.html",
-        {
+        request=request,
+        name="viewer.html",
+        context={
             "request": request,
             "job_id": job_id,
             "status": status,
