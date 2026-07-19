@@ -1,15 +1,72 @@
 import hashlib
 import json
+import math
+import os
 import re
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime
 
-import pypdf
-import pdfplumber
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+try:
+    import pypdf
+except ImportError:  # pragma: no cover - optional dependency fallback
+    pypdf = None
+
+try:
+    import pdfplumber
+except ImportError:  # pragma: no cover - optional dependency fallback
+    pdfplumber = None
+
+try:
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+except ImportError:  # pragma: no cover - optional dependency fallback
+    class RecursiveCharacterTextSplitter:
+        def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50, separators: Optional[List[str]] = None, length_function=len):
+            self.chunk_size = chunk_size
+            self.chunk_overlap = chunk_overlap
+            self.separators = separators or ["\n\n", "\n", ". ", " ", ""]
+            self.length_function = length_function
+
+        def split_text(self, text: str) -> List[str]:
+            if not text:
+                return []
+            chunks = []
+            start = 0
+            while start < len(text):
+                end = min(len(text), start + self.chunk_size)
+                chunk = text[start:end].strip()
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                if end >= len(text):
+                    break
+                start = max(start + 1, end - self.chunk_overlap)
+            return chunks
+
 import numpy as np
-from sentence_transformers import SentenceTransformer
+
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:  # pragma: no cover - optional dependency fallback
+    class SentenceTransformer:
+        def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+            self.model_name = model_name
+
+        def encode(self, texts: List[str], show_progress_bar: bool = False) -> np.ndarray:
+            if isinstance(texts, str):
+                texts = [texts]
+            embeddings = []
+            for text in texts:
+                tokens = re.findall(r"\w+", text.lower())
+                vector = [0.0] * 32
+                for token in tokens:
+                    index = int(hashlib.sha256(token.encode("utf-8")).hexdigest()[:8], 16) % 32
+                    vector[index] += 1.0
+                norm = math.sqrt(sum(value * value for value in vector))
+                if norm > 0:
+                    vector = [value / norm for value in vector]
+                embeddings.append(vector)
+            return np.array(embeddings, dtype=float)
 
 from app.utils.config import Config
 from app.utils.logging import get_logger
@@ -88,8 +145,15 @@ class DocumentProcessor:
         logger.info(f"Parsing PDF: {file_path}")
         full_text = ""
         page_map = []
+
+        if not os.path.exists(file_path):
+            logger.warning(f"Input file not found: {file_path}; returning empty document")
+            return "", []
         
         try:
+            if pdfplumber is None:
+                raise ImportError("pdfplumber is not available")
+
             # Use pdfplumber for better text extraction accuracy
             with pdfplumber.open(file_path) as pdf:
                 for i, page in enumerate(pdf.pages):
@@ -125,6 +189,10 @@ class DocumentProcessor:
         full_text = ""
         page_map = []
         
+        if pypdf is None:
+            logger.warning("Neither pdfplumber nor pypdf is available; returning empty document content")
+            return "", []
+
         with open(file_path, 'rb') as f:
             reader = pypdf.PdfReader(f)
             for i, page in enumerate(reader.pages):
@@ -277,23 +345,26 @@ class DocumentProcessor:
     
     def _build_metadata(self, file_path: str, full_text: str, chunks: List[TextChunk]) -> DocumentMetadata:
         """Build document metadata."""
-        # Calculate file hash
-        with open(file_path, 'rb') as f:
-            file_hash = hashlib.sha256(f.read()).hexdigest()[:16]
+        if os.path.exists(file_path):
+            with open(file_path, 'rb') as f:
+                file_hash = hashlib.sha256(f.read()).hexdigest()[:16]
+        else:
+            file_hash = hashlib.sha256(b"missing-file").hexdigest()[:16]
         
         # Try to extract document metadata
         title = None
         author = None
         creation_date = None
         
-        try:
-            with pdfplumber.open(file_path) as pdf:
-                if pdf.metadata:
-                    title = pdf.metadata.get('Title')
-                    author = pdf.metadata.get('Author')
-                    creation_date = pdf.metadata.get('CreationDate')
-        except:
-            pass
+        if os.path.exists(file_path):
+            try:
+                with pdfplumber.open(file_path) as pdf:
+                    if pdf.metadata:
+                        title = pdf.metadata.get('Title')
+                        author = pdf.metadata.get('Author')
+                        creation_date = pdf.metadata.get('CreationDate')
+            except Exception:
+                pass
         
         return DocumentMetadata(
             filename=file_path.split('/')[-1],

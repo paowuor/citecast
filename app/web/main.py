@@ -10,11 +10,15 @@ from typing import Optional, List
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+try:
+    from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request
+    from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.templating import Jinja2Templates
+    from pydantic import BaseModel, Field
+except ImportError:  # pragma: no cover - optional dependency fallback
+    raise
+
 import uuid
 
 from app.core.pipeline import CiteCastPipeline
@@ -32,9 +36,19 @@ app = FastAPI(
 )
 
 # Setup templates and static files
-templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
-app.mount("/generated", StaticFiles(directory="generated_assets"), name="generated")
+base_dir = Path(__file__).resolve().parent
+repo_root = base_dir.parent.parent
+templates_dir = base_dir / "templates"
+static_dir = base_dir / "static"
+generated_dir = repo_root / "generated_assets"
+upload_dir = repo_root / "uploads"
+
+for path in [generated_dir, upload_dir]:
+    path.mkdir(parents=True, exist_ok=True)
+
+templates = Jinja2Templates(directory=str(templates_dir))
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+app.mount("/generated", StaticFiles(directory=str(generated_dir)), name="generated")
 
 # Initialize pipeline
 pipeline = CiteCastPipeline()
@@ -44,7 +58,7 @@ b2_client = B2StorageClient()
 # Pydantic models
 class JobCreateRequest(BaseModel):
     document_path: str
-    audience: str = Field(..., regex="^(executive|engineer|student)$")
+    audience: str = Field(..., pattern="^(executive|engineer|student)$")
     num_scenes: int = Field(5, ge=1, le=10)
 
 
@@ -130,8 +144,8 @@ async def create_job(
         raise HTTPException(status_code=400, detail="num_scenes must be between 1 and 10")
     
     # Save uploaded file
-    upload_dir = Path("uploads")
-    upload_dir.mkdir(exist_ok=True)
+    upload_dir = repo_root / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
     
     file_path = upload_dir / f"{uuid.uuid4().hex}_{file.filename}"
     

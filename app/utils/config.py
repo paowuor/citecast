@@ -13,6 +13,7 @@ class Config:
     GMI_API_KEY = os.getenv("GMI_API_KEY")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     
     # Logging
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

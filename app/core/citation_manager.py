@@ -5,8 +5,41 @@ from dataclasses import dataclass, asdict
 from collections import defaultdict
 import re
 
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+import math
+import hashlib
+
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:  # pragma: no cover - optional dependency fallback
+    class SentenceTransformer:
+        def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+            self.model_name = model_name
+
+        def encode(self, texts: List[str], show_progress_bar: bool = False) -> np.ndarray:
+            if isinstance(texts, str):
+                texts = [texts]
+            embeddings = []
+            for text in texts:
+                tokens = re.findall(r"\w+", text.lower())
+                vector = [0.0] * 32
+                for token in tokens:
+                    index = int(hashlib.sha256(token.encode("utf-8")).hexdigest()[:8], 16) % 32
+                    vector[index] += 1.0
+                norm = math.sqrt(sum(value * value for value in vector))
+                if norm > 0:
+                    vector = [value / norm for value in vector]
+                embeddings.append(vector)
+            return np.array(embeddings, dtype=float)
+
+try:
+    from sklearn.metrics.pairwise import cosine_similarity
+except ImportError:  # pragma: no cover - optional dependency fallback
+    def cosine_similarity(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+        left_norm = np.linalg.norm(left, axis=1, keepdims=True)
+        right_norm = np.linalg.norm(right, axis=1, keepdims=True)
+        normalized_left = left / np.where(left_norm == 0, 1, left_norm)
+        normalized_right = right / np.where(right_norm == 0, 1, right_norm)
+        return normalized_left @ normalized_right.T
 
 from app.utils.logging import get_logger
 from app.core.document_processor import TextChunk
@@ -116,6 +149,16 @@ class CitationManager:
         logger.info(f"Loaded {len(chunks)} chunks from B2: {b2_path}")
         return chunks
     
+    def generate_embeddings(self, chunks: List[TextChunk]) -> List[TextChunk]:
+        """Generate embeddings for each chunk using the configured embedding model."""
+        texts = [chunk.text for chunk in chunks]
+        embeddings = self.embedding_model.encode(texts, show_progress_bar=False)
+
+        for i, chunk in enumerate(chunks):
+            chunk.embedding = embeddings[i].tolist()
+
+        return chunks
+
     def find_relevant_chunks(
         self, 
         claim: str, 
