@@ -445,4 +445,20 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
+
+<script src="/static/player.js"></script>
+<script>
+    // Initialize the player when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        const sceneData = window.manifestData ? window.manifestData.scenes : [];
+        if (sceneData.length > 0 && typeof CiteCastPlayer !== 'undefined') {
+            window.player = new CiteCastPlayer({
+                container: document.getElementById('player-container'),
+                sidebar: document.getElementById('citation-sidebar'),
+                scenes: sceneData,
+                autoPlay: false
+            });
+        }
+    });
+</script>
 {% endblock %}
